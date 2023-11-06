@@ -7,5 +7,7 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.4.7", default-features = false, features = ["derive", "std", "help", "usage", "error-context"] }
+fast_image_resize = "2.7.3"
 image = { version = "0.24.7", default-features = false, features = ["png", "jpeg", "jpeg_rayon"] }
-x11rb = { version = "0.12.0", features = ["image"] }
+sysinfo = "0.29.10"
+x11rb = { version = "0.12.0", features = ["image", "res"] }

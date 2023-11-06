@@ -1,7 +1,7 @@
 extern crate reberzug;
 use clap::{Parser, ValueEnum};
 use image::imageops::FilterType;
-use reberzug::display_image;
+use reberzug::display::x11::display_image;
 use std::path::PathBuf;
 use x11rb::connection::Connection;
 

@@ -2,14 +2,65 @@ extern crate image;
 extern crate x11rb;
 
 use image::{imageops::FilterType, io::Reader, DynamicImage, GenericImageView};
-use std::error::Error;
-use x11rb::image::{BitsPerPixel, ColorComponent, Image, ImageOrder, PixelLayout, ScanlinePad};
+use std::{error::Error, path::PathBuf};
 use x11rb::{
-    connection::Connection, protocol::xproto::*, rust_connection::RustConnection,
+    connection::Connection,
+    image::{BitsPerPixel, ColorComponent, Image, ImageOrder, PixelLayout, ScanlinePad},
+    protocol::xproto::*,
+    rust_connection::RustConnection,
     wrapper::ConnectionExt as _,
 };
 
+use sysinfo::{Pid, PidExt, ProcessExt, ProcessRefreshKind, RefreshKind, System, SystemExt};
+
+use std::env::var;
+
+fn get_ppid(pid: u32) -> Option<Vec<u32>> {
+    let process_tree = System::new_with_specifics(
+        RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+    );
+    let mut parents: Vec<u32> = Vec::with_capacity(20);
+    let mut current_pid = pid;
+    while current_pid != 1 {
+        let current_process = process_tree
+            .process(Pid::from_u32(current_pid))
+            .expect("failed");
+
+        current_pid = current_process.parent().expect("failed").as_u32();
+        parents.push(current_pid);
+    }
+    Some(parents)
+}
+
+fn get_parent_winid(_conn: &RustConnection, _root: u32) -> Result<u32, Box<dyn Error>> {
+    Ok(var("WINDOWID")?.parse::<u32>()?)
+
+    // TODO: getting window id with pid is tricky find a way to handle it
+    // below isn't a correct and working example and sometimes needs to be plused by 12 or 5 idk why :)
+    //
+    // let windows = query_tree(conn, root).expect("failed to get qureytree").reply().expect("No cookie reply");
+    // let ppids: Vec<u32> = get_ppid(process::id()).expect("no ppid found");
+    // for window in windows.children {
+    //     let spec = ClientIdSpec {
+    //         client: window,
+    //         mask: ClientIdMask::from(2 as u32),
+    //     };
+    //     if let Ok(window) = query_client_ids(conn, &[spec]) {
+    //         for id in window.reply().expect("Failed to get reply").ids {
+    //             if let Some(value) = id.value.get(0) {
+    //                 dbg!(&id);
+    //                 if ppids.contains(value) {
+    //                     dbg!(id.spec.client + 12);
+    //                     return id.spec.client;
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+}
+
 fn check_visual(screen: &Screen, id: Visualid) -> PixelLayout {
+    // TODO: refactor this
     // Find the information about the visual and at the same time check its depth.
     let visual_info = screen
         .allowed_depths
@@ -50,6 +101,8 @@ fn create_image(
     height: u32,
     pixel_layout: PixelLayout,
 ) -> Result<Image, Box<dyn Error>> {
+    
+
     let x11_image = Image::new(
         width as u16,
         height as u16,
@@ -70,25 +123,26 @@ fn create_image(
     Ok(x11_image.into_owned())
 }
 
-fn set_title(conn: &RustConnection, title: &str) {
-    conn.change_property8(
+fn set_title(conn: &RustConnection, win_id: u32, title: &str) {
+    let _ = conn.change_property8(
         PropMode::REPLACE,
-        win,
+        win_id,
         AtomEnum::WM_NAME,
         AtomEnum::STRING,
         title.as_bytes(),
     );
 }
+
 pub fn display_image(
-    image_path: &str,
+    image_path: PathBuf,
     x: u16,
     y: u16,
     width: u32,
     height: u32,
-) -> Result<(), Box<dyn Error>> {
+    filter_type: FilterType,
+) -> Result<RustConnection, Box<dyn Error>> {
     let image = Reader::open(image_path)?.decode()?;
-    // let (width, height) = calculate_image_size(width, height);
-    let image = image.resize(width, height, FilterType::Nearest);
+    let image = image.resize(width, height, filter_type);
     let (width, height) = image.dimensions();
 
     let (conn, screen_num) = x11rb::connect(None)?;
@@ -112,12 +166,12 @@ pub fn display_image(
         .border_pixel(screen.black_pixel)
         .background_pixmap(pixmap);
 
-    set_title(&conn, "reberzug");
+    let parent_id = get_parent_winid(&conn, root)?;
+
     conn.create_window(
         depth,
         win,
-        // root,
-        31457292,
+        parent_id,
         x.try_into()?,
         y.try_into()?,
         width.try_into()?,
@@ -128,6 +182,8 @@ pub fn display_image(
         &window_aux,
     )?;
 
+    set_title(&conn, win, "reberzug");
     conn.map_window(win)?;
     conn.flush()?;
+    Ok(conn)
 }
