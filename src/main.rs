@@ -1,9 +1,11 @@
 extern crate reberzug;
+extern crate fast_image_resize;
+
 use clap::{Parser, ValueEnum};
-use image::imageops::FilterType;
 use reberzug::display::x11::display_image;
 use std::{path::PathBuf, num::NonZeroU32};
 use x11rb::connection::Connection;
+use fast_image_resize::{ResizeAlg, FilterType};
 
 #[derive(Parser, Debug)]
 #[command(name="reberzug", author, about="ueberzug replacment written in rust for showing images on terminal using child window", long_about = None)]
@@ -22,28 +24,32 @@ struct Args {
     #[arg(short = 'H', long)]
     height: NonZeroU32,
 
-    #[arg(short, long, value_enum, default_value_t=ArgFilterType::Triangle, help= "Which filter to use for scaling")]
-    filter: ArgFilterType,
+    #[arg(short, long, value_enum, default_value_t=ArgFilterType::Bilinear, help= "Which algorithm to use for resizing")]
+    resize_alg: ArgFilterType,
 }
 
 // TODO: ugly enum arg
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 enum ArgFilterType {
     Nearest,
-    Triangle,
+    Box,
+    Bilinear,
+    Hamming,
     CatmullRom,
-    Gaussian,
+    Mitchell,
     Lanczos3,
 }
 
-impl From<ArgFilterType> for FilterType {
+impl From<ArgFilterType> for ResizeAlg {
     fn from(filter_type: ArgFilterType) -> Self {
         match filter_type {
-            ArgFilterType::Nearest => FilterType::Nearest,
-            ArgFilterType::Triangle => FilterType::Triangle,
-            ArgFilterType::Gaussian => FilterType::Gaussian,
-            ArgFilterType::CatmullRom => FilterType::CatmullRom,
-            ArgFilterType::Lanczos3 => FilterType::Lanczos3,
+            ArgFilterType::Nearest => ResizeAlg::Nearest,
+            ArgFilterType::CatmullRom => ResizeAlg::Convolution(FilterType::CatmullRom),
+            ArgFilterType::Lanczos3 => ResizeAlg::Convolution(FilterType::Lanczos3),
+            ArgFilterType::Bilinear => ResizeAlg::Convolution(FilterType::Bilinear),
+            ArgFilterType::Box => ResizeAlg::Convolution(FilterType::Box),
+            ArgFilterType::Hamming => ResizeAlg::Convolution(FilterType::Hamming),
+            ArgFilterType::Mitchell => ResizeAlg::Convolution(FilterType::Mitchell),
         }
     }
 }
@@ -57,7 +63,7 @@ fn main() {
         args.y as u16,
         args.width.into(),
         args.height.into(),
-        args.filter.into(),
+        args.resize_alg.into(),
     )
     .expect("Failed to display image");
     loop {

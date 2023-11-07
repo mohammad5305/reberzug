@@ -1,8 +1,8 @@
 extern crate image;
 extern crate x11rb;
 
-use image::{imageops::FilterType, io::Reader, DynamicImage, GenericImageView};
-use std::{error::Error, path::PathBuf};
+use image::{io::Reader, DynamicImage};
+use std::{borrow::Cow, error::Error, num::NonZeroU32, path::PathBuf};
 use x11rb::{
     connection::Connection,
     image::{BitsPerPixel, ColorComponent, Image, ImageOrder, PixelLayout, ScanlinePad},
@@ -10,6 +10,8 @@ use x11rb::{
     rust_connection::RustConnection,
     wrapper::ConnectionExt as _,
 };
+
+use fast_image_resize as fr;
 
 use sysinfo::{Pid, PidExt, ProcessExt, ProcessRefreshKind, RefreshKind, System, SystemExt};
 
@@ -94,15 +96,13 @@ fn check_visual(screen: &Screen, id: Visualid) -> PixelLayout {
     result
 }
 
-fn create_image(
-    conn: &RustConnection,
-    img: DynamicImage,
+fn create_image<'a>(
+    conn: &'a RustConnection,
+    img: &'a [u8],
     width: u32,
     height: u32,
     pixel_layout: PixelLayout,
-) -> Result<Image, Box<dyn Error>> {
-    
-
+) -> Result<Image<'a>, Box<dyn Error>> {
     let x11_image = Image::new(
         width as u16,
         height as u16,
@@ -110,7 +110,7 @@ fn create_image(
         24,
         BitsPerPixel::B24,
         ImageOrder::MsbFirst,
-        img.into_rgb8().into_raw().into(),
+        Cow::Borrowed(img),
     )?;
 
     let image_layout = PixelLayout::new(
@@ -133,17 +133,38 @@ fn set_title(conn: &RustConnection, win_id: u32, title: &str) {
     );
 }
 
+fn resize_image(
+    img: DynamicImage,
+    width: NonZeroU32,
+    height: NonZeroU32,
+    algorithm: fr::ResizeAlg,
+) -> Vec<u8> {
+    let src_image = fr::Image::from_vec_u8(
+        NonZeroU32::new(img.width()).unwrap(),
+        NonZeroU32::new(img.height()).unwrap(),
+        img.to_rgb8().into_raw(),
+        fr::PixelType::U8x3,
+    )
+    .unwrap();
+
+    let mut dst_image = fr::Image::new(width, height, src_image.pixel_type());
+
+    let mut resizer = fr::Resizer::new(algorithm);
+    resizer
+        .resize(&src_image.view(), &mut dst_image.view_mut())
+        .unwrap();
+
+    dst_image.into_vec()
+}
 pub fn display_image(
     image_path: PathBuf,
     x: u16,
     y: u16,
     width: u32,
     height: u32,
-    filter_type: FilterType,
+    resize_alg: fr::ResizeAlg,
 ) -> Result<RustConnection, Box<dyn Error>> {
     let image = Reader::open(image_path)?.decode()?;
-    let image = image.resize(width, height, filter_type);
-    let (width, height) = image.dimensions();
 
     let (conn, screen_num) = x11rb::connect(None)?;
     let screen = &conn.setup().roots[screen_num];
@@ -158,7 +179,14 @@ pub fn display_image(
     create_gc(&conn, gc, pixmap, &CreateGCAux::new())?;
 
     let pixel_layout = check_visual(screen, screen.root_visual);
-    let x11_image = create_image(&conn, image, width, height, pixel_layout);
+
+    let resized_image = resize_image(
+        image,
+        NonZeroU32::new(width).unwrap(),
+        NonZeroU32::new(height).unwrap(),
+        resize_alg,
+    );
+    let x11_image = create_image(&conn, resized_image.as_slice(), width, height, pixel_layout);
     x11_image?.put(&conn, pixmap, gc, 0, 0)?;
 
     let win = conn.generate_id()?;
