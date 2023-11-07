@@ -2,7 +2,7 @@ extern crate reberzug;
 use clap::{Parser, ValueEnum};
 use image::imageops::FilterType;
 use reberzug::display::x11::display_image;
-use std::path::PathBuf;
+use std::{path::PathBuf, num::NonZeroU32};
 use x11rb::connection::Connection;
 
 #[derive(Parser, Debug)]
@@ -17,10 +17,10 @@ struct Args {
     y: u32,
 
     #[arg(short = 'W', long)]
-    width: u32,
+    width: NonZeroU32,
 
     #[arg(short = 'H', long)]
-    height: u32,
+    height: NonZeroU32,
 
     #[arg(short, long, value_enum, default_value_t=ArgFilterType::Triangle, help= "Which filter to use for scaling")]
     filter: ArgFilterType,
@@ -55,8 +55,8 @@ fn main() {
         args.image,
         args.x as u16,
         args.y as u16,
-        args.width,
-        args.height,
+        args.width.into(),
+        args.height.into(),
         args.filter.into(),
     )
     .expect("Failed to display image");
