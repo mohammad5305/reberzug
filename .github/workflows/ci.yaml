@@ -1,10 +1,14 @@
 name: ci
 on:
   push:
-    branches: [ $default-branch ]
   pull_request:
-    branches: [ $default-branch ]
   workflow_dispatch:
+
+# Spend CI time only on latest ref: https://github.com/jonhoo/rust-ci-conf/pull/5
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 
 jobs:
   semantic:
@@ -12,22 +16,69 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: paulhatch/semantic-version@v5.3.0
         with:
           tag_prefix: "v"
-          major_pattern: "(MAJOR)"
-          minor_pattern: "(MINOR)"
-            # A string to determine the format of the version output
-          version_format: "${major}.${minor}.${patch}-prerelease${increment}"
-            # Optional path to check for changes. If any changes are detected in the path the
-            # 'changed' output will true. Enter multiple paths separated by spaces.
           change_path: "src/"
-          bump_each_commit: false
-            # If bump_each_commit is also set to true, setting this value will cause the version to increment only if the pattern specified is matched.
-          bump_each_commit_patch_pattern: ""
           search_commit_body: false
-            # The output method used to generate list of users, 'csv' or 'json'.
-          user_format_type: "csv"
-            # Prevents pre-v1.0.0 version from automatically incrementing the major version.
-            # If enabled, when the major version is 0, major releases will be treated as minor and minor as patch. Note that the version_type output is unchanged.
-          enable_prerelease_mode: true
+  build:
+    runs-on: ubuntu-latest
+    strategy: 
+      matrix:
+        target: [ i686-unknown-linux-gnu, x86_64-unknown-linux-gnu ]
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+
+      - name: Install gcc-libs
+        run: |
+          sudo apt install gcc-multilib
+
+      - name: Build target
+        uses: actions-rs/cargo@v1
+        with:
+          # use-cross: true
+          command: build
+          args: --release --target ${{ matrix.target }}
+      
+      - name: Package
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          TAR_NAME=$(printf "reberzug-%s.tar.gz" $(echo ${{ matrix.target }} | sed 's/-unknown//g' ) )
+
+          tar czvf ../../../${TAR_NAME} reberzug
+          cd -
+      - name: Publish
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: latest
+          files: 'reberzug*'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  fmt:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    name: stable / fmt
+    allow-failure: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check
+        run: cargo fmt --check
