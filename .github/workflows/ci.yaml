@@ -32,6 +32,12 @@ jobs:
         run: |
           sudo apt install gcc-multilib
 
+      # related to https://github.com/actions/runner/issues/2468 
+      - name: Set Swap Space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
+
       - name: Build target
         uses: actions-rs/cargo@v1
         with:
