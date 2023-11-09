@@ -17,12 +17,21 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: '0'
       - uses: paulhatch/semantic-version@v5.3.0
+        id: semantic
         with:
           tag_prefix: "v"
+          major_pattern: "(MAJOR)"
+          minor_pattern: "(MINOR)"
+            # A string to determine the format of the version output
+          version_format: "${major}.${minor}.${patch}+${increment}"
           change_path: "src/"
+          bump_each_commit: false
           search_commit_body: false
+            # Prevents pre-v1.0.0 version from automatically incrementing the major version.
+            # If enabled, when the major version is 0, major releases will be treated as minor and minor as patch. Note that the version_type output is unchanged.
+          enable_prerelease_mode: true
   build:
     runs-on: ubuntu-latest
     strategy: 
@@ -62,7 +71,7 @@ jobs:
       - name: Publish
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: latest
+          tag_name: ${{ steps.semantic.outputs.version }
           files: 'reberzug*'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -71,7 +80,6 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     name: stable / fmt
-    allow-failure: true
     steps:
       - uses: actions/checkout@v4
         with:
