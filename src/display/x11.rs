@@ -1,13 +1,19 @@
+extern crate anyhow;
 extern crate image;
 extern crate x11rb;
 
+use anyhow::{Context, Result};
 use image::{io::Reader, DynamicImage};
-use std::{borrow::Cow, error::Error, num::NonZeroU32, path::PathBuf};
+use std::{
+    borrow::Cow,
+    num::NonZeroU32,
+    path::PathBuf,
+};
 use x11rb::{
     connection::Connection,
     image::{BitsPerPixel, ColorComponent, Image, ImageOrder, PixelLayout, ScanlinePad},
     protocol::xproto::*,
-    rust_connection::RustConnection,
+    rust_connection::{ParseError::InvalidValue, RustConnection},
     wrapper::ConnectionExt as _,
 };
 
@@ -34,8 +40,10 @@ fn get_ppid(pid: u32) -> Option<Vec<u32>> {
     Some(parents)
 }
 
-fn get_parent_winid(_conn: &RustConnection, _root: u32) -> Result<u32, Box<dyn Error>> {
-    Ok(var("WINDOWID")?.parse::<u32>()?)
+fn get_parent_winid(_conn: &RustConnection, _root: u32) -> Result<u32> {
+    Ok(var("WINDOWID")
+        .context("Failed to get parent Window id")?
+        .parse::<u32>()?)
 
     // TODO: getting window id with pid is tricky find a way to handle it
     // below isn't a correct and working example and sometimes needs to be plused by 12 or 5 idk why :)
@@ -61,24 +69,17 @@ fn get_parent_winid(_conn: &RustConnection, _root: u32) -> Result<u32, Box<dyn E
     // }
 }
 
-fn check_visual(screen: &Screen, id: Visualid) -> PixelLayout {
+fn check_visual(screen: &Screen, id: Visualid) -> Option<PixelLayout> {
     // TODO: refactor this
     // Find the information about the visual and at the same time check its depth.
-    let visual_info = screen
+    let (depth, visual_type) = screen
         .allowed_depths
         .iter()
         .filter_map(|depth| {
             let info = depth.visuals.iter().find(|depth| depth.visual_id == id);
             info.map(|info| (depth.depth, info))
         })
-        .next();
-    let (depth, visual_type) = match visual_info {
-        Some(info) => info,
-        None => {
-            eprintln!("Did not find the root visual's description?!");
-            std::process::exit(1);
-        }
-    };
+        .next()?;
     // Check that the pixels have red/green/blue components that we can set directly.
     match visual_type.class {
         VisualClass::TRUE_COLOR | VisualClass::DIRECT_COLOR => {}
@@ -93,7 +94,7 @@ fn check_visual(screen: &Screen, id: Visualid) -> PixelLayout {
     let result = PixelLayout::from_visual_type(*visual_type)
         .expect("The server sent a malformed visual type");
     assert_eq!(result.depth(), depth);
-    result
+    Some(result)
 }
 
 fn create_image<'a>(
@@ -102,7 +103,7 @@ fn create_image<'a>(
     width: u32,
     height: u32,
     pixel_layout: PixelLayout,
-) -> Result<Image<'a>, Box<dyn Error>> {
+) -> Result<Image<'a>> {
     let x11_image = Image::new(
         width as u16,
         height as u16,
@@ -138,23 +139,20 @@ fn resize_image(
     width: NonZeroU32,
     height: NonZeroU32,
     algorithm: fr::ResizeAlg,
-) -> Vec<u8> {
+) -> Result<Vec<u8>> {
     let src_image = fr::Image::from_vec_u8(
         NonZeroU32::new(img.width()).unwrap(),
         NonZeroU32::new(img.height()).unwrap(),
         img.to_rgb8().into_raw(),
         fr::PixelType::U8x3,
-    )
-    .unwrap();
+    )?;
 
     let mut dst_image = fr::Image::new(width, height, src_image.pixel_type());
 
     let mut resizer = fr::Resizer::new(algorithm);
-    resizer
-        .resize(&src_image.view(), &mut dst_image.view_mut())
-        .unwrap();
+    resizer.resize(&src_image.view(), &mut dst_image.view_mut())?;
 
-    dst_image.into_vec()
+    Ok(dst_image.into_vec())
 }
 pub fn display_image(
     image_path: PathBuf,
@@ -163,10 +161,12 @@ pub fn display_image(
     width: u32,
     height: u32,
     resize_alg: fr::ResizeAlg,
-) -> Result<RustConnection, Box<dyn Error>> {
-    let image = Reader::open(image_path)?.decode()?;
+) -> Result<RustConnection> {
+    let image = Reader::open(image_path)
+        .context("Invalid Image format")?
+        .decode()?;
 
-    let (conn, screen_num) = x11rb::connect(None)?;
+    let (conn, screen_num) = x11rb::connect(None).context("Failed to connect to x11")?;
     let screen = &conn.setup().roots[screen_num];
 
     let depth = screen.root_depth;
@@ -178,14 +178,14 @@ pub fn display_image(
     let gc = conn.generate_id()?;
     create_gc(&conn, gc, pixmap, &CreateGCAux::new())?;
 
-    let pixel_layout = check_visual(screen, screen.root_visual);
+    let pixel_layout = check_visual(screen, screen.root_visual).ok_or(InvalidValue)?;
 
     let resized_image = resize_image(
         image,
         NonZeroU32::new(width).unwrap(),
         NonZeroU32::new(height).unwrap(),
         resize_alg,
-    );
+    )?;
     let x11_image = create_image(&conn, resized_image.as_slice(), width, height, pixel_layout);
     x11_image?.put(&conn, pixmap, gc, 0, 0)?;
 

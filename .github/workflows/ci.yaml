@@ -14,15 +14,15 @@ jobs:
   semantic:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.voutput.outputs.version }}
-      version_tag: ${{ steps.voutput.outputs.version_tag }}
+      version: ${{ steps.version.outputs.version }}
+      version_tag: ${{ steps.version.outputs.version_tag }}
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
         with:
           fetch-depth: '0'
       - uses: paulhatch/semantic-version@v5.3.0
-        id: voutput
+        id: version
         with:
           tag_prefix: "v"
           major_pattern: "(MAJOR)"
@@ -41,8 +41,10 @@ jobs:
     needs: semantic
 
     strategy: 
+      fail-fast: true
       matrix:
         target: [ i686-unknown-linux-gnu, x86_64-unknown-linux-gnu ]
+
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
@@ -64,11 +66,6 @@ jobs:
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 10
-      - name: print tag
-        run: | 
-          echo ${{ needs.semantic.outputs.version }}
-          echo ${{ needs.semantic.outputs.version_tag }}
-
 
       - name: Build target
         uses: actions-rs/cargo@v1

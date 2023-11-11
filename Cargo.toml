@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.75"
 clap = { version = "4.4.7", default-features = false, features = ["derive", "std", "help", "usage", "error-context"] }
 fast_image_resize = "2.7.3"
 image = { version = "0.24.7", default-features = false, features = ["png", "jpeg", "jpeg_rayon"] }
