@@ -36,3 +36,27 @@ reberzug -W 300 -H 500 -r box /tmp/image.png
 ```
 
 For more information run `reberzug -h`
+
+### Fzf preview
+for better postioning needs `xdotool` to get width, height of terminal.
+```sh
+IFS="x" read -r WIN_WIDTH WIN_HEIGHT <<< "$(xdotool getwindowfocus getwindowgeometry | grep -ioP 'Geometry:\K.+')"
+
+COLS=$(tput cols)
+LINES=$(tput lines)
+
+WIDTH_RATIO=$((WIN_WIDTH/COLS))
+HEIGHT_RATIO=$((WIN_HEIGHT/LINES))
+
+draw_image (){
+    # 60 is supposed to be based on fontsize :)
+    X=$((FZF_PREVIEW_COLUMNS * WIDTH_RATIO + 60))
+    Y=$((1 * HEIGHT_RATIO))
+    /tmp/reberzug -W 500 -H 300 -r box -x $X -y $Y $1
+}
+
+export WIDTH_RATIO HEIGHT_RATIO
+export -f draw_image
+
+ls -1 <path> |fzf --preview "draw_image <path>/{}"
+```
