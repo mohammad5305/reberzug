@@ -34,7 +34,7 @@ jobs:
           search_commit_body: false
             # Prevents pre-v1.0.0 version from automatically incrementing the major version.
             # If enabled, when the major version is 0, major releases will be treated as minor and minor as patch. Note that the version_type output is unchanged.
-          enable_prerelease_mode: true
+          # enable_prerelease_mode: true
 
   build:
     runs-on: ubuntu-latest
@@ -67,8 +67,14 @@ jobs:
         with:
           swap-size-gb: 10
 
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.3
+
       - name: Build target
         uses: actions-rs/cargo@v1
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
         with:
           # use-cross: true
           command: build
