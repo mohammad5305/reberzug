@@ -59,7 +59,7 @@ jobs:
 
       - name: Install gcc-libs
         run: |
-          sudo apt install gcc-multilib
+          sudo apt update && sudo apt install gcc-multilib
 
       # related to https://github.com/actions/runner/issues/2468 
       - name: Set Swap Space
@@ -70,15 +70,17 @@ jobs:
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.3
 
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
       - name: Build target
-        uses: actions-rs/cargo@v1
         env:
           SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: "sccache"
-        with:
-          # use-cross: true
-          command: build
-          args: --release --target ${{ matrix.target }}
+          CARGO_PROFILE_RELEASE_STRIP: "true"
+        run: |
+          cargo build --release --target ${{ matrix.target }}
       
       - name: Package
         shell: bash
